@@ -7,9 +7,9 @@
 const unsigned int SCREEN_WIDTH = 1920;
 const unsigned int SCREEN_HEIGHT = 1080;
 const float ballRadius = 20.0f;
-const float simulationSpeed = 4.0f;
+const float simulationSpeed = 1.0f;
 const float spawnInterval = 1.0f;
-const float dumpingConstant = 0.5f;
+const float dumpingConstant = 0.95f;
 
 class Ball {
 public:
