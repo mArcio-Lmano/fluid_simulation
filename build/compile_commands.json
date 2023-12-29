@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/talocha/C++/fluid_simulation/build",
+  "command": "/usr/bin/g++ -I/usr/include/CL -g -std=gnu++14 -o CMakeFiles/fluid_app.dir/src/main.cpp.o -c /home/talocha/C++/fluid_simulation/src/main.cpp",
+  "file": "/home/talocha/C++/fluid_simulation/src/main.cpp",
+  "output": "CMakeFiles/fluid_app.dir/src/main.cpp.o"
+}
+]
