@@ -1,106 +1,90 @@
 #include <SFML/Graphics.hpp>
-#include <vector>
-#include <cstdlib>
-#include <ctime>
-#include <cmath> 
-#include <iostream> 
+#include <cmath>
+#include <random>
+#include <iostream>
 
-const unsigned int SCREEN_WIDTH = 1920;
-const unsigned int SCREEN_HEIGHT = 1080;
-const float ballRadius = 5.0f;
-const float simulationSpeed = 4.0f;
-const float spawnInterval = 1.0f;
-const float dumpingConstant = 0.5f;
+const float SCREEN_WIDTH = 1920.0f;
+const float SCREEN_HEIGHT = 1080.0f;
+const float gravity = 9.8f; // Acceleration due to gravity
+const float delta_t = 0.001f; // Time step
+const int substeps = 8; // Number of substeps per iteration
+const float damping = 0.01f;
+const float ai_res = 0.99999;
+int clock_m = 1000;
 
-class Ball {
-public:
-    Ball(float x, float y, float vx, float vy)
-        : position(x, y), velocity(vx, vy) {
-        shape.setRadius(ballRadius);
-        shape.setPosition(position);
-        shape.setFillColor(sf::Color::Blue);
-        drawColor = sf::Color::Blue;
-    }
-
-    void update(float delta) {
-        position += velocity * delta;
-        shape.setPosition(position);
-    }
-
-    void draw(sf::RenderWindow& window) {
-        window.draw(shape);
-    }
-
-    sf::Vector2f getPosition() const {
-        return position;
-    }
-
-    void setPosition(float x, float y){
-
-        sf::Vector2f position;
-        position.x = x;
-        position.y = y;
-        shape.setPosition(position);
-    }
-
-    void applyImpulse(const sf::Vector2f& impulse) {
-        velocity += impulse;
-    }
-
-    void boundsColision(float x, float y){
-        velocity.x *= x;
-        velocity.y *= y;
-    }
-
-    void applyGravity(float gravity, float delta){
-        velocity.y += gravity * delta;
-    }
-
-    void move(float x, float y) {
-        sf::Vector2f position = shape.getPosition();
-        position.x += x;
-        position.y += y;
-        shape.setPosition(position);
-    }
-
-    sf::Color drawColor; 
+struct Ball {
     sf::CircleShape shape;
-    float radius;
-
-private:
-
-    sf::Vector2f position;
     sf::Vector2f velocity;
+
+    Ball(float radius, sf::Vector2f position) {
+        shape.setRadius(radius);
+        shape.setPosition(position);
+        shape.setFillColor(sf::Color::Red);
+        velocity.x = 200.0f;
+        velocity.y = 0.0f;
+    }
+    
+    sf::Vector2f getCirclePos(){
+        sf::Vector2f RectPos = shape.getPosition();
+        sf::Vector2f offsetCirc(shape.getRadius(), shape.getRadius());
+        return RectPos + offsetCirc;
+    }
+
+    void move(const sf::Vector2f& offset) {
+        // printf("offset (%f, %f)\n", offset.x, offset.y);
+        shape.move(offset);
+    }
+
+    
 };
 
 class BallManager {
 public:
-    void spawnBall() {
-        float x = 20.0f + ballRadius;
-        float y = 20.0f + ballRadius;
-        float vx = 300.0f; 
-        float vy = 0.0f;
-        float radius = ballRadius;
-        balls.push_back(Ball(x, y, vx, vy));
+    void addBall(float radius, sf::Vector2f position) {
+        balls.push_back(Ball(radius, position));
     }
 
-    void update(float delta) {
-        for (auto& ball : balls) {
-            ball.applyGravity(20.0, delta);
-            ball.update(delta);
-            ball.shape.setFillColor(ball.drawColor);
+    void update(sf::RenderWindow& window, float delta, float substeps) {
+        float sub_delta = delta / float(substeps);
+        for (int i = 0; i < substeps; ++i) {
+            for (auto& ball : balls) {
+            // Simulate physics with sub-steps
+                // Update position based on velocity
+                ball.shape.move(ball.velocity * sub_delta);
+
+                // Air Resistance
+                // Air Resistance (Damping)
+                ball.velocity *= (1.0f - damping * sub_delta);
+
+                // ball.velocity *= ai_res*sub_delta;
+
+                // Update velocity based on gravity
+                ball.velocity.y += gravity * sub_delta;
+
+                printf("Ball Velocity: ( %f, %f)\n", ball.velocity.x, ball.velocity.y);
+
+                sf::Vector2f ball_pos = ball.getCirclePos();
+                float radius = ball.shape.getRadius();
+
+                if (ball_pos.x + radius >= SCREEN_WIDTH || 
+                    ball_pos.x - radius <= 0.0f) {
+                    ball.velocity.x = 0.0f;
+                }
+
+                if (ball_pos.y + radius >= SCREEN_HEIGHT) {
+                    ball.velocity.y = 0.0f;
+                }
+
+                // Clamp the position to stay within the screen boundaries
+                sf::Vector2f ballPosition = ball.shape.getPosition();
+                ballPosition.x = clamp(ballPosition.x, 0.0f, window.getSize().x - 2 * ball.shape.getRadius());
+                ballPosition.y = clamp(ballPosition.y, 0.0f, window.getSize().y - 2 * ball.shape.getRadius());
+                ball.shape.setPosition(ballPosition);
+            }
+            check_collision(delta);
         }
-
-        // Check collisions
-        detectCollisions(delta);
     }
 
-    void update_sub_steps(float dt, int sub_steps){
-        const float sub_dt = dt / float(sub_steps);
-        for (int i = 0; i < sub_dt; i++) {
-            update(dt);
-        }
-    }
 
     void draw(sf::RenderWindow& window) {
         for (const auto& ball : balls) {
@@ -108,113 +92,115 @@ public:
         }
     }
 
-private:
-    void detectCollisions(float delta);
-    void handleCollision(Ball& ballA, Ball& ballB, const sf::Vector2f& dist, float distance, float delta);
 
+    void check_collision(float delta) {
+        // Check for collisions between each pair of balls
+        for (size_t i = 0; i < balls.size(); ++i) {
+            for (size_t j = i + 1; j < balls.size(); ++j) {
+                sf::Vector2f pos1 = balls[i].getCirclePos();
+                sf::Vector2f pos2 = balls[j].getCirclePos();
+                float distance = std::sqrt((pos1.x - pos2.x) * (pos1.x - pos2.x) +
+                                        (pos1.y - pos2.y) * (pos1.y - pos2.y));
 
-    std::vector<Ball> balls;
-};
+                float totalRadius = balls[i].shape.getRadius() + balls[j].shape.getRadius();
+                // If the distance between the centers of two balls is less than their combined radii, they collide
+                if (distance < totalRadius) {
+                    // printf("Colision\n");
+                    // printf("Distance %f\n", distance);
+                    handle_colision(balls[i], balls[j], distance, delta);
 
-
-void BallManager::detectCollisions(float delta) {
-    for (size_t i = 0; i < balls.size(); ++i) {
-            // Check collisions with boundaries
-            if (balls[i].getPosition().x + ballRadius > SCREEN_WIDTH) {
-                balls[i].setPosition(SCREEN_WIDTH - ballRadius, balls[i].getPosition().y);
-                balls[i].boundsColision(-1 * dumpingConstant, 1);
-            } else if (balls[i].getPosition().x - ballRadius < 0) {
-                balls[i].setPosition(0.0 + ballRadius, balls[i].getPosition().y);
-                balls[i].boundsColision(-1 * dumpingConstant, 1);
-            }
-
-            if (balls[i].getPosition().y + ballRadius > SCREEN_HEIGHT) {
-                balls[i].setPosition(balls[i].getPosition().x, SCREEN_HEIGHT - ballRadius);
-                balls[i].boundsColision(-1 * dumpingConstant, 1);
-                balls[i].boundsColision(1, -1 * dumpingConstant);
-            } else if (balls[i].getPosition().y - ballRadius < 0) {
-                balls[i].setPosition(balls[i].getPosition().x, 0 + ballRadius);
-                balls[i].boundsColision(1, -1 * dumpingConstant);
-            }
-
-
-        for (size_t j = i + 1; j < balls.size(); ++j) {
-            sf::Vector2f dist = balls[j].getPosition() - balls[i].getPosition();
-            float distance = std::sqrt(dist.x * dist.x + dist.y * dist.y);
-
-            if (distance < balls[i].radius + balls[j].radius) {
-                // Collision detected, you can add your logic here
-                // For example, change colors, velocities, etc.
-                balls[i].drawColor = sf::Color::Red;
-                balls[j].drawColor = sf::Color::Red;
-
-                // Call a separate function to handle collision response
-                handleCollision(balls[i], balls[j], dist, distance, delta);
+                }
             }
         }
     }
-}
 
-void BallManager::handleCollision(Ball& ballA, Ball& ballB, const sf::Vector2f& dist, float distance, float delta) {
-    // Reverse velocities in opposite directions
+    // void handle_colision(Ball& ballA, Ball& ballB, float distance, float delta){
 
-    float x = ballA.getPosition().x - ballB.getPosition().x;
-    float y = ballA.getPosition().y - ballB.getPosition().y;
-    // float distance = std::sqrt(std::pow(x,2.0f) + std::pow(y, 2.0f));
-    float theta = std::atan(y/x);
-    printf("%f\n", theta);
-    float deltaDist = ((ballA.radius + ballB.radius) - distance) / 2.0f;
-    ballA.move(-deltaDist * std::cos(theta), deltaDist * std::sin(theta));
-    ballB.move(deltaDist * std::cos(theta), - deltaDist * std::sin(theta));
-}
+    //     float delta_d = (ballA.shape.getRadius() + ballB.shape.getRadius() - distance) / 2.0f;
+    //     float x = ballA.getCirclePos().x - ballB.getCirclePos().x;
+    //     float y = ballA.getCirclePos().y - ballB.getCirclePos().y;
+    //     float theta = std::atan2(x, y);
 
+    //     float repulsion_factor = 5.0f;  // Adjust this factor to control the strength of repulsion
+    //     float move_factor = repulsion_factor * delta_d;
+    //     ballA.move((-move_factor * std::cos(theta)) * delta, (move_factor * std::sin(theta)) * delta);
+    //     ballB.move((move_factor * std::cos(theta)) * delta, (-move_factor * std::sin(theta)) * delta);
+
+    //     printf("Velocidade x: %f  Velocidade y: %f, Radious: %f\n", (-delta_d * std::cos(theta))*delta, (delta_d * std::sin(theta))*delta, ballA.shape.getRadius());
+    // }
+
+
+    void handle_colision(Ball& ballA, Ball& ballB, float distance, float delta) {
+        constexpr float response_coef = 3.0f;
+        constexpr float eps = 0.0001f;
+
+        // Calculate the overlap
+        float delta_d = (ballA.shape.getRadius() + ballB.shape.getRadius() - distance) / 2.0f;
+
+        // printf("Overlaap: %f ",delta_d);
+        // printf("Distance: %f\n", distance);
+
+        // Check if the particles are overlapping (avoid division by zero)
+        if (distance < (ballA.shape.getRadius() + ballB.shape.getRadius()) && distance > eps) {
+            // Calculate the collision vector
+            sf::Vector2f col_vec = ((ballA.getCirclePos() - ballB.getCirclePos()))  * 0.5f;
+            // printf("Collision Vector: (%f, %f)\n", col_vec.x, col_vec.y);
+            sf::Vector2f col_vec_inv = -col_vec;
+            // printf("Collision Vector Inverse: (%f, %f)\n", col_vec_inv.x, col_vec_inv.y);
+    
+            // Adjust particle positions based on the collision vector
+            ballA.move(col_vec * delta * response_coef);
+            ballB.move(col_vec_inv * delta * response_coef);
+        }
+    }
+private:
+    std::vector<Ball> balls;
+
+    // Clamp function remains the same
+    template <typename T>
+    T clamp(T value, T min, T max) {
+        return std::max(min, std::min(value, max));
+    }
+};
 
 int main() {
-    srand(static_cast<unsigned int>(time(nullptr)));
+    sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Ball Simulation");
 
-    sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "SFML Ball Collision");
     BallManager ballManager;
+    ballManager.addBall(20.0f, sf::Vector2f(400.0f, 0.0f));
+    ballManager.addBall(15.0f, sf::Vector2f(400.0f, 100.0f));
 
-    sf::Clock clock;
-    sf::Clock fpsClock;
-    float spawnTimer = 0.0f;
-    int frameCount = 0;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // Define a distribution for floating-point numbers (e.g., between 0.0 and 1.0)
+    std::uniform_real_distribution<> distribution(5.0, 25.0);
+
+    int ball_clock = 0;
 
     while (window.isOpen()) {
         sf::Event event;
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed) {
                 window.close();
-            }
-            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+            } else if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
                 window.close();
             }
         }
 
-        float delta = clock.restart().asSeconds() * simulationSpeed;
-        spawnTimer += delta;
+        ballManager.update(window, delta_t, 8);
 
-        if (spawnTimer >= spawnInterval) {
-            ballManager.spawnBall();
-            spawnTimer = 0.0f;
-        }
-
-        ballManager.update_sub_steps(delta, 8);
-
+        // Generate a random float
+        float randomValue = distribution(gen);
         window.clear();
         ballManager.draw(window);
         window.display();
+        ball_clock ++;
 
-        // // FPS calculation
-        // frameCount++;
-        // if (fpsClock.getElapsedTime().asSeconds() >= 1.0) {
-        //     // Display FPS in console (you can modify this part based on your needs)
-        //     std::cout << "FPS: " << frameCount << std::endl;
-
-        //     // Reset counters
-        //     frameCount = 0;
-        //     fpsClock.restart();
-        // }
+        if (ball_clock > clock_m){
+            ballManager.addBall(randomValue, sf::Vector2f(400.0f, 100.0f));
+            ball_clock = 0;
+        }
     }
 
     return 0;
