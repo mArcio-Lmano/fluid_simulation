@@ -3,13 +3,14 @@
 #include <cstdlib>
 #include <ctime>
 #include <cmath> 
+#include <iostream> 
 
 const unsigned int SCREEN_WIDTH = 1920;
 const unsigned int SCREEN_HEIGHT = 1080;
-const float ballRadius = 20.0f;
-const float simulationSpeed = 1.0f;
+const float ballRadius = 5.0f;
+const float simulationSpeed = 4.0f;
 const float spawnInterval = 1.0f;
-const float dumpingConstant = 0.95f;
+const float dumpingConstant = 0.5f;
 
 class Ball {
 public:
@@ -18,6 +19,7 @@ public:
         shape.setRadius(ballRadius);
         shape.setPosition(position);
         shape.setFillColor(sf::Color::Blue);
+        drawColor = sf::Color::Blue;
     }
 
     void update(float delta) {
@@ -54,8 +56,16 @@ public:
         velocity.y += gravity * delta;
     }
 
+    void move(float x, float y) {
+        sf::Vector2f position = shape.getPosition();
+        position.x += x;
+        position.y += y;
+        shape.setPosition(position);
+    }
+
     sf::Color drawColor; 
     sf::CircleShape shape;
+    float radius;
 
 private:
 
@@ -68,8 +78,9 @@ public:
     void spawnBall() {
         float x = 20.0f + ballRadius;
         float y = 20.0f + ballRadius;
-        float vx = 200.0f; 
+        float vx = 300.0f; 
         float vy = 0.0f;
+        float radius = ballRadius;
         balls.push_back(Ball(x, y, vx, vy));
     }
 
@@ -77,10 +88,18 @@ public:
         for (auto& ball : balls) {
             ball.applyGravity(20.0, delta);
             ball.update(delta);
+            ball.shape.setFillColor(ball.drawColor);
         }
 
         // Check collisions
         detectCollisions(delta);
+    }
+
+    void update_sub_steps(float dt, int sub_steps){
+        const float sub_dt = dt / float(sub_steps);
+        for (int i = 0; i < sub_dt; i++) {
+            update(dt);
+        }
     }
 
     void draw(sf::RenderWindow& window) {
@@ -123,7 +142,7 @@ void BallManager::detectCollisions(float delta) {
             sf::Vector2f dist = balls[j].getPosition() - balls[i].getPosition();
             float distance = std::sqrt(dist.x * dist.x + dist.y * dist.y);
 
-            if (distance < 2 * ballRadius) {
+            if (distance < balls[i].radius + balls[j].radius) {
                 // Collision detected, you can add your logic here
                 // For example, change colors, velocities, etc.
                 balls[i].drawColor = sf::Color::Red;
@@ -138,19 +157,18 @@ void BallManager::detectCollisions(float delta) {
 
 void BallManager::handleCollision(Ball& ballA, Ball& ballB, const sf::Vector2f& dist, float distance, float delta) {
     // Reverse velocities in opposite directions
-    sf::Vector2f collisionNormal = dist / distance;
-    sf::Vector2f relativeVelocity = ballB.getPosition() - ballA.getPosition();
-    float dotProduct = relativeVelocity.x * collisionNormal.x + relativeVelocity.y * collisionNormal.y;
-    sf::Vector2f impulse = (2.0f * dotProduct / (1.0f + 1.0f)) * collisionNormal;
 
-    ballA.applyImpulse(impulse*delta*dumpingConstant);
-    ballB.applyImpulse(-impulse*delta*dumpingConstant);
-    float overlap = 2 * ballRadius - distance;
-    sf::Vector2f correction = 0.5f * overlap * collisionNormal;
-
-    ballA.shape.move(correction);
-    ballB.shape.move(-correction);
+    float x = ballA.getPosition().x - ballB.getPosition().x;
+    float y = ballA.getPosition().y - ballB.getPosition().y;
+    // float distance = std::sqrt(std::pow(x,2.0f) + std::pow(y, 2.0f));
+    float theta = std::atan(y/x);
+    printf("%f\n", theta);
+    float deltaDist = ((ballA.radius + ballB.radius) - distance) / 2.0f;
+    ballA.move(-deltaDist * std::cos(theta), deltaDist * std::sin(theta));
+    ballB.move(deltaDist * std::cos(theta), - deltaDist * std::sin(theta));
 }
+
+
 int main() {
     srand(static_cast<unsigned int>(time(nullptr)));
 
@@ -158,7 +176,9 @@ int main() {
     BallManager ballManager;
 
     sf::Clock clock;
+    sf::Clock fpsClock;
     float spawnTimer = 0.0f;
+    int frameCount = 0;
 
     while (window.isOpen()) {
         sf::Event event;
@@ -166,7 +186,7 @@ int main() {
             if (event.type == sf::Event::Closed) {
                 window.close();
             }
-            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape){
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
                 window.close();
             }
         }
@@ -179,11 +199,22 @@ int main() {
             spawnTimer = 0.0f;
         }
 
-        ballManager.update(delta);
+        ballManager.update_sub_steps(delta, 8);
 
         window.clear();
         ballManager.draw(window);
         window.display();
+
+        // // FPS calculation
+        // frameCount++;
+        // if (fpsClock.getElapsedTime().asSeconds() >= 1.0) {
+        //     // Display FPS in console (you can modify this part based on your needs)
+        //     std::cout << "FPS: " << frameCount << std::endl;
+
+        //     // Reset counters
+        //     frameCount = 0;
+        //     fpsClock.restart();
+        // }
     }
 
     return 0;
